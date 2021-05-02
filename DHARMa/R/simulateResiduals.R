@@ -285,3 +285,124 @@ recalculateResiduals <- function(simulationOutput, group = NULL, aggregateBy = s
     return(out)
   }
 }
+
+#' Apply DHARMa residual diagnostic tests to a candidate set of models.
+#'
+#' This function applies DHARMa residual diagnostic tests to a user-specified list of models. Tests
+#' look for agreement between simulated and empirical residuals; assessing models for dispersion,
+#' zero-inflation, anomalous prevalence of outliers, and deviations from expected distributions.
+#'
+#' @param modList A list of model objects.
+#' @param n Number of DHARMa simulations to generate from each model.
+#' 
+#' @details This functionality emerged from user interest in applying DHARMa residual diagnostic tests to several
+#' models in a model selection context. Model selection necessitates that candidate models meet
+#' modeling assumptions regardless of complexity (Mazerolle 2019). Otherwise, the most "appropriate" model
+#' may be parsimonious but misspecified.
+#' 
+#' This function applies the tests within the \code{testResdiuals} function, as well as
+#' \code{testZeroInflation}. Caution: tests may not be applicable in every context.
+#'
+#' @return Returns a data.frame containing the following columns:
+#' 
+#' \code{statistic}: Test statistics for each particular test.
+#' 
+#' \code{p.value}: P values from each test.
+#' 
+#' \code{alt.hyp}: Alternative hypothesis specified in each test.
+#' 
+#' \code{method}: A short description of each applied test.
+#' 
+#' \code{response}: LHS of specified model formula.
+#' 
+#' \code{predictor}: RHS of specified model formula.
+#'
+#' @export multiModAssess
+#'
+#' @references
+#'
+#' Mazerolle, Marc J. 2019. AICcmodavg: Model Selection and Multimodel Inference Based on (Q)AIC(c). https://cran.r-project.org/package=AICcmodavg.
+#'
+#' @examples
+#'
+#' library(glmmTMB)
+#' modList <- list()
+#' modList[[1]] <- glmmTMB(count ~ mined + (1|site), zi=~mined, family=poisson, data=Salamanders)
+#' modList[[2]] <- glmmTMB(count ~ mined + cover + (1|site), zi=~mined, family=poisson, data=Salamanders)
+#' modList[[3]] <- glmmTMB(count ~ mined + cover + spp + (1|site), zi=~mined, family=poisson, data=Salamanders)
+#' multiModAssess(modList)
+
+multiModAssess <- function(modList, n = 500){
+  
+  # make sure model set is in list format
+  if (!is.list(modList)){
+    stop("Model set must be of class list.")
+  }
+  
+  # Apply tests to all models in model set
+  df <- do.call(rbind,
+                (lapply(modList, 
+                        testApply, 
+                        n = n)))
+  
+  return(df)
+}
+
+#' Apply tests to model and extract summary statistics
+#'
+#' This function applies a set of DHARMa residual tests to a single model
+#'
+#' @param mod A model
+#' @param n Number of DHARMa simulations
+#'
+#' @keywords internal
+testApply <- function(mod, 
+                      n = 500){
+  
+  # apply DHARMa tests to models
+  scaled_sims <- DHARMa::simulateResiduals(fittedModel = mod, n = n)
+  res_tests <- DHARMa::testResiduals(scaled_sims, plot = F)
+  zinf <- DHARMa::testZeroInflation(scaled_sims, plot = F)
+  
+  # uniformity: takes KS-test summary output and converts to data.frame
+  unif <- unlist(res_tests$uniformity)
+  unif <- data.frame(statistic = as.numeric(unif[1]),
+                     p.value = as.numeric(unif[2]),
+                     alt.hyp = unif[3],
+                     method = unif[4],
+                     short.name = "uniformity")
+  
+  # dispersion: takes dispersion test summary output and converts to data.frame
+  disp <- unlist(res_tests$dispersion)
+  disp <- data.frame(statistic = as.numeric(disp[2]),
+                     p.value = as.numeric(disp[5]),
+                     alt.hyp = disp[4],
+                     method = disp[3],
+                     short.name = "dispersion")
+  
+  # outliers: takes summary output from exact binomial and converts to data frame
+  outl <- unlist(res_tests$outliers)
+  outl <- data.frame(statistic = as.numeric(outl[1]),
+                     p.value = as.numeric(outl[3]),
+                     alt.hyp = outl[8],
+                     method = outl[9],
+                     short.name = "outliers")
+  
+  # zero-inflation: takes summary output from zero-inflatoinis test and converts to data frame
+  zinf <- unlist(zinf)
+  zinf <- data.frame(statistic = as.numeric(zinf[2]),
+                     p.value = as.numeric(zinf[5]),
+                     alt.hyp = zinf[4],
+                     method = zinf[3],
+                     short.name = "zero-inflation")
+  
+  
+  output <- rbind(disp, unif, outl, zinf)
+  row.names(output) <- NULL
+  output$response <- as.character(formula(mod))[2]
+  output$predictor <- as.character(formula(mod))[3]
+  
+  return(output)
+  
+}
+
