@@ -286,7 +286,7 @@ recalculateResiduals <- function(simulationOutput, group = NULL, aggregateBy = s
   }
 }
 
-#' Apply DHARMa residual diagnostic tests to a candidate set of models.
+#' Apply DHARMa residual diagnostic tests to a set of candidate models.
 #'
 #' This function applies DHARMa residual diagnostic tests to a user-specified list of models. Tests
 #' look for agreement between simulated and empirical residuals; assessing models for dispersion,
@@ -294,14 +294,12 @@ recalculateResiduals <- function(simulationOutput, group = NULL, aggregateBy = s
 #'
 #' @param modList A list of model objects.
 #' @param n Number of DHARMa simulations to generate from each model.
+#' @param tests A vector of tests to apply to candidate model set. Currently allow for inputs of "testResdiuals" and "testZeroInflation".
 #' 
-#' @details This functionality emerged from user interest in applying DHARMa residual diagnostic tests to several
-#' models in a model selection context. Model selection necessitates that candidate models meet
+#' @details Model selection necessitates that candidate models meet
 #' modeling assumptions regardless of complexity (Mazerolle 2019). Otherwise, the most "appropriate" model
-#' may be parsimonious but misspecified.
-#' 
-#' This function applies the tests within the \code{testResdiuals} function, as well as
-#' \code{testZeroInflation}. Caution: tests may not be applicable in every context.
+#' may be parsimonious but misspecified. This function applies a user-specified list of DHARMa residual
+#' diagnostic tests (specified as a character vector) to a candidate model set.
 #'
 #' @return Returns a data.frame containing the following columns:
 #' 
@@ -311,7 +309,7 @@ recalculateResiduals <- function(simulationOutput, group = NULL, aggregateBy = s
 #' 
 #' \code{alt.hyp}: Alternative hypothesis specified in each test.
 #' 
-#' \code{method}: A short description of each applied test.
+#' \code{short.name}: A short description of each applied test.
 #' 
 #' \code{response}: LHS of specified model formula.
 #' 
@@ -330,9 +328,16 @@ recalculateResiduals <- function(simulationOutput, group = NULL, aggregateBy = s
 #' modList[[1]] <- glmmTMB(count ~ mined + (1|site), zi=~mined, family=poisson, data=Salamanders)
 #' modList[[2]] <- glmmTMB(count ~ mined + cover + (1|site), zi=~mined, family=poisson, data=Salamanders)
 #' modList[[3]] <- glmmTMB(count ~ mined + cover + spp + (1|site), zi=~mined, family=poisson, data=Salamanders)
-#' multiModAssess(modList)
 
-multiModAssess <- function(modList, n = 500){
+#' # test all models using the tests within testResiduals
+#' multiModAssess(modList, tests = "testResiduals")
+
+#' # test all models with testResiduals and testZeroInflation  
+#' multiModAssess(modList, tests = c("testResiduals","testZeroInflation"))
+
+
+multiModAssess <- function(modList, n = 500, 
+                           tests = c("testResiduals","testZeroInflation")){
   
   # make sure model set is in list format
   if (!is.list(modList)){
@@ -343,7 +348,8 @@ multiModAssess <- function(modList, n = 500){
   df <- do.call(rbind,
                 (lapply(modList, 
                         testApply, 
-                        n = n)))
+                        n = n,
+                        tests = tests)))
   
   return(df)
 }
@@ -354,55 +360,67 @@ multiModAssess <- function(modList, n = 500){
 #'
 #' @param mod A model
 #' @param n Number of DHARMa simulations
+#' @param tests Vector of tests passed from \code{multiModAssess}
 #'
 #' @keywords internal
 testApply <- function(mod, 
-                      n = 500){
+                      n,
+                      tests,
+                      ...){
+  
+  scaled_sims <- DHARMa::simulateResiduals(fittedModel = mod, n = n)
   
   # apply DHARMa tests to models
-  scaled_sims <- DHARMa::simulateResiduals(fittedModel = mod, n = n)
-  res_tests <- DHARMa::testResiduals(scaled_sims, plot = F)
-  zinf <- DHARMa::testZeroInflation(scaled_sims, plot = F)
-  
-  # uniformity: takes KS-test summary output and converts to data.frame
-  unif <- unlist(res_tests$uniformity)
-  unif <- data.frame(statistic = as.numeric(unif[1]),
-                     p.value = as.numeric(unif[2]),
-                     alt.hyp = unif[3],
-                     method = unif[4],
-                     short.name = "uniformity")
-  
-  # dispersion: takes dispersion test summary output and converts to data.frame
-  disp <- unlist(res_tests$dispersion)
-  disp <- data.frame(statistic = as.numeric(disp[2]),
-                     p.value = as.numeric(disp[5]),
-                     alt.hyp = disp[4],
-                     method = disp[3],
-                     short.name = "dispersion")
-  
-  # outliers: takes summary output from exact binomial and converts to data frame
-  outl <- unlist(res_tests$outliers)
-  outl <- data.frame(statistic = as.numeric(outl[1]),
-                     p.value = as.numeric(outl[3]),
-                     alt.hyp = outl[8],
-                     method = outl[9],
-                     short.name = "outliers")
-  
-  # zero-inflation: takes summary output from zero-inflatoinis test and converts to data frame
-  zinf <- unlist(zinf)
-  zinf <- data.frame(statistic = as.numeric(zinf[2]),
-                     p.value = as.numeric(zinf[5]),
-                     alt.hyp = zinf[4],
-                     method = zinf[3],
-                     short.name = "zero-inflation")
-  
-  
-  output <- rbind(disp, unif, outl, zinf)
-  row.names(output) <- NULL
-  output$response <- as.character(formula(mod))[2]
-  output$predictor <- as.character(formula(mod))[3]
-  
-  return(output)
-  
+  mod_out <- data.frame()
+  for (i in 1:length(tests)){
+    if (tests[i] == "testResiduals"){
+      res_tests <- DHARMa::testResiduals(scaled_sims, plot = F)
+      
+      # uniformity: takes KS-test summary output and converts to data.frame
+      unif <- unlist(res_tests$uniformity)
+      unif <- data.frame(statistic = as.numeric(unif[names(unif) == "statistic.D"]),
+                         p.value = as.numeric(unif[names(unif) == "p.value"]),
+                         alt.hyp = unif[names(unif) == "alternative"],
+                         short.name = "uniformity")
+      
+      # dispersion: takes dispersion test summary output and converts to data.frame
+      disp <- unlist(res_tests$dispersion)
+      disp <- data.frame(statistic = as.numeric(disp[names(disp) == "statistic.dispersion"]),
+                         p.value = as.numeric(disp[names(disp) == "p.value"]),
+                         alt.hyp = disp[names(disp) == "alternative"],
+                         short.name = "dispersion")
+      
+      # outliers: takes summary output from exact binomial and converts to data frame
+      outl <- unlist(res_tests$outliers)
+      outl <- data.frame(statistic = as.numeric(outl[names(outl) == "statistic.outliers at both margin(s)"]),
+                         p.value = as.numeric(outl[names(outl) == "p.value"]),
+                         alt.hyp = outl[names(outl) == "alternative"],
+                         short.name = "outliers")
+      
+      assign("mod_out",
+             rbind(mod_out, outl, disp, unif))
+      
+    } else if (tests[i] == "testZeroInflation"){
+      
+      zinf <- DHARMa::testZeroInflation(scaled_sims, plot = F)
+      
+      # zero-inflation: takes summary output from zero-inflation test and converts to data frame
+      zinf <- unlist(zinf)
+      zinf <- data.frame(statistic = as.numeric(zinf[names(zinf) == "statistic.ratioObsSim"]),
+                         p.value = as.numeric(zinf[names(zinf) == "p.value"]),
+                         alt.hyp = zinf[names(zinf) == "alternative"],
+                         short.name = "zero-inflation")
+      assign("mod_out",
+             rbind(mod_out, zinf))
+      
+    } else {
+      
+      stop(paste(tests[i], "is not supported by multiModAssess."))
+      
+    }
+  }
+  row.names(mod_out) <- NULL
+  mod_out$response <- as.character(formula(mod))[2]
+  mod_out$predictor <- as.character(formula(mod))[3]
+  return(mod_out)
 }
-

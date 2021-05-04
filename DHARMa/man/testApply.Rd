@@ -4,12 +4,14 @@
 \alias{testApply}
 \title{Apply tests to model and extract summary statistics}
 \usage{
-testApply(mod, n = 500)
+testApply(mod, n, tests, ...)
 }
 \arguments{
 \item{mod}{A model}
 
 \item{n}{Number of DHARMa simulations}
+
+\item{tests}{Vector of tests passed from \code{multiModAssess}}
 }
 \description{
 This function applies a set of DHARMa residual tests to a single model

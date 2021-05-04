@@ -2,14 +2,17 @@
 % Please edit documentation in R/simulateResiduals.R
 \name{multiModAssess}
 \alias{multiModAssess}
-\title{Apply DHARMa residual diagnostic tests to a candidate set of models.}
+\title{Apply DHARMa residual diagnostic tests to a set of candidate models.}
 \usage{
-multiModAssess(modList, n = 500)
+multiModAssess(modList, n = 500, tests = c("testResiduals",
+  "testZeroInflation"))
 }
 \arguments{
 \item{modList}{A list of model objects.}
 
 \item{n}{Number of DHARMa simulations to generate from each model.}
+
+\item{tests}{A vector of tests to apply to candidate model set. Currently allow for inputs of "testResdiuals" and "testZeroInflation".}
 }
 \value{
 Returns a data.frame containing the following columns:
@@ -20,7 +23,7 @@ Returns a data.frame containing the following columns:
 
 \code{alt.hyp}: Alternative hypothesis specified in each test.
 
-\code{method}: A short description of each applied test.
+\code{short.name}: A short description of each applied test.
 
 \code{response}: LHS of specified model formula.
 
@@ -32,13 +35,10 @@ look for agreement between simulated and empirical residuals; assessing models f
 zero-inflation, anomalous prevalence of outliers, and deviations from expected distributions.
 }
 \details{
-This functionality emerged from user interest in applying DHARMa residual diagnostic tests to several
-models in a model selection context. Model selection necessitates that candidate models meet
+Model selection necessitates that candidate models meet
 modeling assumptions regardless of complexity (Mazerolle 2019). Otherwise, the most "appropriate" model
-may be parsimonious but misspecified.
-
-This function applies the tests within the \code{testResdiuals} function, as well as
-\code{testZeroInflation}. Caution: tests may not be applicable in every context.
+may be parsimonious but misspecified. This function applies a user-specified list of DHARMa residual
+diagnostic tests (specified as a character vector) to a candidate model set.
 }
 \examples{
 
@@ -47,7 +47,10 @@ modList <- list()
 modList[[1]] <- glmmTMB(count ~ mined + (1|site), zi=~mined, family=poisson, data=Salamanders)
 modList[[2]] <- glmmTMB(count ~ mined + cover + (1|site), zi=~mined, family=poisson, data=Salamanders)
 modList[[3]] <- glmmTMB(count ~ mined + cover + spp + (1|site), zi=~mined, family=poisson, data=Salamanders)
-multiModAssess(modList)
+# test all models using the tests within testResiduals
+multiModAssess(modList, tests = "testResiduals")
+# test all models with testResiduals and testZeroInflation  
+multiModAssess(modList, tests = c("testResiduals","testZeroInflation"))
 }
 \references{
 Mazerolle, Marc J. 2019. AICcmodavg: Model Selection and Multimodel Inference Based on (Q)AIC(c). https://cran.r-project.org/package=AICcmodavg.
